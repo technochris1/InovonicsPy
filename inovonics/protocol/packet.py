@@ -4,7 +4,10 @@ import logging
 from collections import OrderedDict
 
 import inovonics.utils
-from inovonics.protocol.constants import PACKET, RORG, PARSE_RESULT, DB0
+from inovonics.protocol.constants import PACKET, RORG, PARSE_RESULT, DB0, START_BYTES, PACKET_HEADERS, MESSAGE_CLASS
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Packet(object):
@@ -15,7 +18,6 @@ class Packet(object):
     parse_msg() returns subclass, if one is defined for the data type.
     '''
     
-    logger = logging.getLogger('inovonics.protocol.packet')
 
     def __init__(self, packet_type, data=None, optional=None):
         self.packet_type = packet_type
@@ -27,13 +29,13 @@ class Packet(object):
         self.received = None
 
         if not isinstance(data, list) or data is None:
-            self.logger.warning('Replacing Packet.data with default value.')
+            self.LOGGER.warning('Replacing Packet.data with default value.')
             self.data = []
         else:
             self.data = data
 
         if not isinstance(optional, list) or optional is None:
-            self.logger.warning('Replacing Packet.optional with default value.')
+            self.LOGGER.warning('Replacing Packet.optional with default value.')
             self.optional = []
         else:
             self.optional = optional
@@ -58,6 +60,13 @@ class Packet(object):
     def __eq__(self, other):
         return self.packet_type == other.packet_type and self.rorg == other.rorg \
             and self.data == other.data and self.optional == other.optional
+
+
+    def checksumB(self, bytes):
+        return b'%02X' % (sum(bytes) & 0xFF)
+    
+    def checksum(self, bytes):
+        return (sum(bytes) & 0xFF)
 
     @property
     def _bit_data(self):
@@ -108,59 +117,200 @@ class Packet(object):
         '''
         # If the buffer doesn't contain 0x55 (start char)
         # the message isn't needed -> ignore
-        if 0x55 not in buf:
+        if buf[0] not in START_BYTES:
+        #if 0x55 not in buf:
             return PARSE_RESULT.INCOMPLETE, [], None
 
-        # Valid buffer starts from 0x55
-        # Convert to list, as index -method isn't defined for bytearray
-        buf = [ord(x) if not isinstance(x, int) else x for x in buf[list(buf).index(0x55):]]
-        try:
-            data_len = (buf[1] << 8) | buf[2]
-            opt_len = buf[3]
-        except IndexError:
-            # If the fields don't exist, message is incomplete
-            return PARSE_RESULT.INCOMPLETE, buf, None
+        
+        # # Convert to list, as index -method isn't defined for bytearray
+        # buf = [ord(x) if not isinstance(x, int) else x for x in buf[list(buf).index(0x55):]]
+        # try:
+        #     data_len = (buf[1] << 8) | buf[2]
+        #     opt_len = buf[3]
+        # except IndexError:
+        #     # If the fields don't exist, message is incomplete
+        #     return PARSE_RESULT.INCOMPLETE, buf, None
 
         # Header: 6 bytes, data, optional data and data checksum
-        msg_len = 6 + data_len + opt_len + 1
+        msg_len = buf[1]
         if len(buf) < msg_len:
             # If buffer isn't long enough, the message is incomplete
             return PARSE_RESULT.INCOMPLETE, buf, None
 
-        msg = buf[0:msg_len]
-        buf = buf[msg_len:]
-
-        packet_type = msg[4]
-        data = msg[6:6 + data_len]
-        opt_data = msg[6 + data_len:6 + data_len + opt_len]
-
-        # Check CRCs for header and data
-        if msg[5] != crc8.calc(msg[1:5]):
+        msg = buf[:msg_len + 1]
+        if msg[-1:][0] != Packet.checksum(msg[: -1]):
             # Fail if doesn't match message
-            Packet.logger.error('Header CRC error!')
+            Packet.LOGGER.error('Header CHECKSUM error!')
             # Return CRC_MISMATCH
-            return PARSE_RESULT.CRC_MISMATCH, buf, None
-        if msg[6 + data_len + opt_len] != crc8.calc(msg[6:6 + data_len + opt_len]):
-            # Fail if doesn't match message
-            Packet.logger.error('Data CRC error!')
-            # Return CRC_MISMATCH
-            return PARSE_RESULT.CRC_MISMATCH, buf, None
+            return PARSE_RESULT.CHECKSUM_MISMATCH, buf, None
+
+
+
+
+
+        buf = buf[msg_len +1:]
+
+        #packet_type = msg[4]
+        #data = msg[6:6 + data_len]
+        #opt_data = msg[6 + data_len:6 + data_len + opt_len]
 
         # If we got this far, everything went ok (?)
-        if packet_type == PACKET.RADIO_ERP1:
-            # Need to handle UTE Teach-in here, as it's a separate packet type...
-            if data[0] == RORG.UTE:
-                packet = UTETeachInPacket(packet_type, data, opt_data)
-            else:
-                packet = RadioPacket(packet_type, data, opt_data)
-        elif packet_type == PACKET.RESPONSE:
-            packet = ResponsePacket(packet_type, data, opt_data)
-        elif packet_type == PACKET.EVENT:
-            packet = EventPacket(packet_type, data, opt_data)
-        else:
-            packet = Packet(packet_type, data, opt_data)
+        # if packet_type == PACKET.RADIO_ERP1:
+        #     # Need to handle UTE Teach-in here, as it's a separate packet type...
+        #     if data[0] == RORG.UTE:
+        #         packet = UTETeachInPacket(packet_type, data, opt_data)
+        #     else:
+        #         packet = RadioPacket(packet_type, data, opt_data)
+        # elif packet_type == PACKET.RESPONSE:
+        #     packet = ResponsePacket(packet_type, data, opt_data)
+        # elif packet_type == PACKET.EVENT:
+        #     packet = EventPacket(packet_type, data, opt_data)
+        # else:
+        #     packet = Packet(packet_type, data, opt_data)
+
+
+
+        match msg[0]:
+            case PACKET_HEADERS.DATA_ACK: 
+                LOGGER.info(" ACK")
+                #0[0x06] - Header for data acknowledgement from application controller.
+                #1[0x02] - Message length, excluding checksum.
+                #2[0x08] - Checksum.    
+
+            case PACKET_HEADERS.DATA_NACK: 
+                #0[0x15] - Header for data non-acknowledgement from application controller.
+                #1[0x03] - Message length, excluding checksum.
+                #2[ERROR] - One byte error code
+                #  [0x01] - Checksum incorrect
+                #  [0x02] - Unrecognized header
+                #  [0x03] - Serial buffer full
+                #  [0x04] - Timeout(incomplete message)
+                #  [0x05] - Write error
+                #  [0x06] - Read error
+                #  [0x07] - Invalid data
+                #  [0x08] - Unrecognized command
+                #  [0x09] - Outbound directed message fail
+                #  [0x0A - 0xFF] - Reserved
+                #3[CKSUM] - Checksum.                                
+                LOGGER.info(f" NAK Error = {msg[2]} ")
+
+            case PACKET_HEADERS.CONTROLLER_MESSAGE: #0x1C
+                #0[0x1C] - Header for the check-in or status message.
+                #1[0x05] - Message length, excluding checksum.
+                #2[DATA] - The counter of unacknowledged messages sent to your application controller since the last check -in or status message.
+                #3[STAT1] - Status byte 1 is reserved.
+                #4[STAT0] - Status byte 0.
+                #     Bit 7 - Receiver is jammed.All channels contain interfering signals above a predetermined level.
+                #     Bit 6 - Reserved.
+                #     Bit 5 - RF gateway case tamper.
+                #     Bit 4 - Set when there has been no change in status since the last transmission.
+                #     Bit 3 - Reset of the RF gateway microcontroller.
+                #     Bit 2 - Reserved.
+                #     Bit 1 - Reserved.
+                #     Bit 0 - Link failure.
+                #5[CKSUM] - Checksum.
+                
+                #stat0 = queue.peekAll()[4].toString(2).padStart(8, "0")
+                #LOGGER.info("STAT0:", stat0);
+                #LOGGER.info("STAT0:Jammed", stat0[0]);
+                #LOGGER.info("STAT0:CaseTamper", stat0[2]);
+                #LOGGER.info("STAT0:Idle", stat0[3]);
+                #LOGGER.info("STAT0:Reset", stat0[4]);                                
+                #s1 = BitArray(u=packet[4], length=8)
+                #s1.reverse() # reverse bits to match documentation
+                #LOGGER.info(f" Network Coordinator Message: [{packet[0]}][{packet[1]}][{packet[2]}][{packet[3]}][{packet[4]} (0.{s1[0]} 3.{s1[3]} 4.{s1[4]} 5.{s1[5]} 7.{s1[7]})][{packet[5]}] ")
+                LOGGER.info(" Network Coordinator Message")
+
+            case PACKET_HEADERS.PAYLOAD_MESSAGE: #0x72 
+                #LOGGER.info(f" Device Payload Message Begin: [{packet[0]}][{packet[1]}]{packet[2:6]}{packet[6:10]}[{packet[10]}]")
+                        
+                #let uID = Convert.ToInt64(HEXuID, 16).ToString().PadLeft(8, "0");
+
+                #traceCount = packet[10]
+                #Debug.WriteLine("TRACE.COUNT: " + traceCount);
+                LOGGER.info(f"TRACE.COUNT: {msg[10]}")
+                _traceCountOffset = msg[10] * 4
+                
+                LOGGER.info(f"HOP.COUNT: {msg[11 + _traceCountOffset]}")
+                LOGGER.info(f"MSG.CLASS: {msg[12 + _traceCountOffset]}")    
+
+                match (msg[12 + _traceCountOffset]):
+                    case MESSAGE_CLASS.REPEATER_RESET:                                             
+                        LOGGER.info("Repeater Reset Message From Device")
+                        pass
+
+                    case MESSAGE_CLASS.AGGREGATED_ENDPOINT_MESSAGE: 
+                        #region Security Device - Aggregated Message        
+                        LOGGER.info("Aggregated Security Endpoint Message From Device")                                    
+                        pass
+
+                    case MESSAGE_CLASS.TEMPERATURE_SENSOR_MESSAGE: 
+                        #region Temperature Device
+                        LOGGER.info("Temperature SensorMessage From Device")
+                        pass
+                
+                    case MESSAGE_CLASS.ENDPOINT_MESSAGE:
+                        #region Security Device              
+                        LOGGER.info("Security Endpoint Message")
+                        #LOGGER.info(f"Security Endpoint Message From Device={msg[2:6]} productType={msg[13 + (msg[10] * 4)]} level={msg[16 + (msg[10] * 4)]} margin={msg[17 + (msg[10] * 4)]}")                              
+                        pass
+                
+                    
+                    case MESSAGE_CLASS.NETWORK_DEVICE_STATUS: 
+                        LOGGER.info(f"Network Device Status Message")
+                        #region Network Device Status Message
+                        #LOGGER.info(f"Network Device Status Message From Device={packet[2:6]} mode={packet[13 + (packet[10] * 4)]} level={packet[16 + (packet[10] * 4)]} margin={packet[17 + (packet[10] * 4)]}")
+                        #s1 = BitArray(u=packet[15 + (packet[10] * 4)], length=8)
+                        #s1.reverse() # reverse bits to match documentation
+                        #LOGGER.info(f"STAT0 = 1.{s1[1]} 3.{s1[3]} 4.{s1[4]} 5.{s1[5]} 6.{s1[6]} 7.{s1[7]}) ")
+                        pass
+
+                    case _: # DEFAULT
+                        pass
+                        
+            case _:  #DEFAULT
+                pass
+
+
+
+
+
+
+
 
         return PARSE_RESULT.OK, buf, packet
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     @staticmethod
     def create(packet_type, rorg, rorg_func, rorg_type, direction=None, command=None,
@@ -191,13 +341,13 @@ class Packet(object):
             raise ValueError('RORG not supported by this function.')
 
         if destination is None:
-            Packet.logger.warning('Replacing destination with broadcast address.')
+            Packet.LOGGER.warning('Replacing destination with broadcast address.')
             destination = [0xFF, 0xFF, 0xFF, 0xFF]
 
         # TODO: Should use the correct Base ID as default.
         #       Might want to change the sender to be an offset from the actual address?
         if sender is None:
-            Packet.logger.warning('Replacing sender with default address.')
+            Packet.LOGGER.warning('Replacing sender with default address.')
             sender = [0xDE, 0xAD, 0xBE, 0xEF]
 
         if not isinstance(destination, list) or len(destination) != 4:
@@ -344,7 +494,7 @@ class RadioPacket(Packet):
                     self.rorg_func = inovonics.utils.from_bitarray(self._bit_data[DB3.BIT_7:DB3.BIT_1])
                     self.rorg_type = inovonics.utils.from_bitarray(self._bit_data[DB3.BIT_1:DB2.BIT_2])
                     self.rorg_manufacturer = inovonics.utils.from_bitarray(self._bit_data[DB2.BIT_2:DB0.BIT_7])
-                    self.logger.debug('learn received, EEP detected, RORG: 0x%02X, FUNC: 0x%02X, TYPE: 0x%02X, Manufacturer: 0x%02X' % (self.rorg, self.rorg_func, self.rorg_type, self.rorg_manufacturer))  # noqa: E501
+                    self.LOGGER.debug('learn received, EEP detected, RORG: 0x%02X, FUNC: 0x%02X, TYPE: 0x%02X, Manufacturer: 0x%02X' % (self.rorg, self.rorg_func, self.rorg_type, self.rorg_manufacturer))  # noqa: E501
 
         return super(RadioPacket, self).parse()
 
