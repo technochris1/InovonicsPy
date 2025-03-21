@@ -1,21 +1,26 @@
 #!/usr/bin/env python
-try:
-    from setuptools import setup
-except ImportError:
-    from distutils.core import setup
+from setuptools import setup, find_packages
+
+
+
+VERSION = '0.0.1'
+DESCRIPTION = 'Inovonics serial protocol implementation'
+LONG_DESCRIPTION = None
 
 setup(
-    name='inovonics',
-    version='0.0.1',
-    description='Inovonics serial protocol implementation',
+    name='pyinovonics',
+    version=VERSION,
+    description=DESCRIPTION,
+    long_description=LONG_DESCRIPTION,
     author='Christopher Fisk',
     author_email='technochris1@gmail.com',
     url='https://github.com/technochris1/InovonicsPy',
-    packages=[
-        'inovonics',
-        'inovonics.protocol',
-        'inovonics.comms',
-    ],
+    packages=find_packages(),
+    #packages=[
+    #    'inovonics',
+    #    'inovonics.protocol',
+    #    'inovonics.comms',
+    #],
     scripts=[],
     package_data={},
     install_requires=[

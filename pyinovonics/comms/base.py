@@ -8,8 +8,8 @@ try:
     import queue
 except ImportError:
     import Queue as queue
-from inovonics.protocol.packet import Packet
-from inovonics.protocol.constants import PACKET, PARSE_RESULT, RETURN_CODE
+from pyinovonics.protocol.packet import Packet
+from pyinovonics.protocol.constants import PACKET, PARSE_RESULT, RETURN_CODE
 
 
 class CommBase(threading.Thread):

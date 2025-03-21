@@ -3,8 +3,8 @@ from __future__ import print_function, unicode_literals, division, absolute_impo
 import logging
 from collections import OrderedDict
 
-from inovonics.utils import *
-from inovonics.protocol.constants import PACKET, RORG, PARSE_RESULT, DB0, START_BYTES, PACKET_HEADERS, MESSAGE_CLASS
+from pyinovonics.utils import *
+from pyinovonics.protocol.constants import PACKET, RORG, PARSE_RESULT, DB0, START_BYTES, PACKET_HEADERS, MESSAGE_CLASS
 
 
 LOGGER = logging.getLogger(__name__)

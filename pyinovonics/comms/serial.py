@@ -4,7 +4,7 @@ import logging
 import serial
 import time
 
-from inovonics.comms.base import CommBase
+from pyinovonics.comms.base import CommBase
 
 
 class Serial(CommBase):

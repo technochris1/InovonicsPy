@@ -1,0 +1,10 @@
+Metadata-Version: 2.1
+Name: pyinovonics
+Version: 0.0.1
+Summary: Inovonics serial protocol implementation
+Home-page: https://github.com/technochris1/InovonicsPy
+Author: Christopher Fisk
+Author-email: technochris1@gmail.com
+License-File: LICENSE
+Requires-Dist: enum-compat>=0.0.2
+Requires-Dist: pyserial>=3.0

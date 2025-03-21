@@ -3,7 +3,7 @@ from __future__ import print_function, unicode_literals, division, absolute_impo
 import logging
 import socket
 
-from inovonics.comms.base import CommBase
+from pyinovonics.comms.base import CommBase
 
 
 class Socket(CommBase):
